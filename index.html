@@ -330,7 +330,61 @@
   .gate-btn:hover{background:var(--accent-dark);}
   .gate-err{
     min-height:16px; font-size:12.5px; color:var(--stamp); margin-top:10px;
+  }  .icon-btn:disabled{opacity:.35; cursor:not-allowed;}
+  .icon-btn:disabled:hover{background:rgba(255,255,255,.92); color:var(--ink-soft); border-color:var(--rule);}
+
+  .viewall-btn{
+    border:1px solid var(--rule); background:var(--card);
+    color:var(--accent-dark); font-size:12.5px; font-weight:600;
+    padding:6px 12px; border-radius:999px; cursor:pointer;
+    display:flex; align-items:center; gap:6px;
   }
+  .viewall-btn:hover{background:var(--accent-soft); border-color:var(--accent);}
+  .viewall-btn:disabled{opacity:.4; cursor:not-allowed;}
+
+  .modal-overlay{
+    position:fixed; inset:0; z-index:90;
+    background:rgba(32,38,31,.42);
+    display:flex; align-items:center; justify-content:center;
+    padding:20px;
+  }
+  .modal-overlay.hidden{display:none;}
+  .modal-card{
+    width:100%; max-width:600px; max-height:88vh;
+    background:var(--card); border-radius:14px;
+    box-shadow:var(--shadow);
+    padding:20px 22px 18px;
+    display:flex; flex-direction:column; gap:12px;
+  }
+  .modal-head{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+  }
+  .modal-head h3{
+    font-family:'Fraunces', serif; font-weight:600; font-size:17px; margin:0;
+  }
+  .modal-close{
+    width:28px; height:28px; border-radius:8px; border:1px solid var(--rule);
+    background:var(--paper-alt); color:var(--ink-soft); cursor:pointer; font-size:13px;
+    flex:none;
+  }
+  .modal-close:hover{background:var(--stamp); color:#fff; border-color:var(--stamp);}
+  .modal-textarea{
+    width:100%; min-height:280px; flex:1;
+    font-family:'IBM Plex Mono', monospace; font-size:12.5px; line-height:1.6;
+    border:1px solid var(--rule); border-radius:10px;
+    background:var(--paper-alt); color:var(--ink);
+    padding:14px; resize:vertical;
+  }
+  .modal-textarea:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  .modal-actions{
+    display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+  .modal-note{font-size:12px; color:var(--accent-dark); min-height:14px;}
+  .ghost-btn{
+    border:1px solid var(--rule); background:transparent; color:var(--ink-soft);
+    padding:9px 16px; border-radius:9px; font-size:13px; cursor:pointer;
+  }
+  .ghost-btn:hover{background:var(--accent-soft); color:var(--accent-dark); border-color:var(--accent);}
 </style>
 </head>
 <body class="locked">
@@ -389,7 +443,13 @@
 
   <div class="section-label">
     <h2>ลำดับหน้า</h2>
-    <span class="hint" id="gridHint"></span>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span class="hint" id="gridHint"></span>
+      <button class="viewall-btn" id="viewAllTextBtn" type="button" disabled>
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 2h9M2 6h9M2 10h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        ดูข้อความทั้งหมด
+      </button>
+    </div>
   </div>
 
   <div id="gridArea"></div>
@@ -406,6 +466,23 @@
       ดาวน์โหลด PDF
     </button>
     <span class="status" id="status"></span>
+  </div>
+</div>
+
+<div id="textModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="modalTitle">ข้อความในหน้า</h3>
+      <button class="modal-close" id="modalClose" aria-label="ปิด">✕</button>
+    </div>
+    <textarea id="modalText" class="modal-textarea" readonly></textarea>
+    <div class="modal-actions">
+      <span class="modal-note" id="modalNote"></span>
+      <div style="display:flex; gap:8px;">
+        <button class="ghost-btn" id="modalDownload" type="button">ดาวน์โหลด .txt</button>
+        <button class="gate-btn" id="modalCopy" type="button" style="width:auto; padding:9px 18px;">คัดลอก</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -445,6 +522,76 @@ const dlBtn = $('#dlBtn');
 const statusEl = $('#status');
 const countPill = $('#countPill');
 const gridHint = $('#gridHint');
+const viewAllTextBtn = $('#viewAllTextBtn');
+const textModal = $('#textModal');
+const modalTitle = $('#modalTitle');
+const modalText = $('#modalText');
+const modalNote = $('#modalNote');
+
+function openModal(title, text) {
+  modalTitle.textContent = title;
+  modalText.value = (text && text.trim()) ? text : '(ไม่พบข้อความในหน้านี้ อาจเป็นไฟล์สแกนที่ไม่มีเลเยอร์ข้อความ)';
+  modalNote.textContent = '';
+  textModal.classList.remove('hidden');
+  setTimeout(() => { modalText.focus(); modalText.select(); }, 30);
+}
+function closeModal() { textModal.classList.add('hidden'); }
+$('#modalClose').addEventListener('click', closeModal);
+textModal.addEventListener('click', (e) => { if (e.target === textModal) closeModal(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !textModal.classList.contains('hidden')) closeModal();
+});
+
+async function copyText(str) {
+  try {
+    await navigator.clipboard.writeText(str);
+    return true;
+  } catch (e) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = str;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (e2) {
+      return false;
+    }
+  }
+}
+
+$('#modalCopy').addEventListener('click', async () => {
+  const ok = await copyText(modalText.value);
+  modalNote.textContent = ok ? 'คัดลอกแล้ว ✓' : 'คัดลอกอัตโนมัติไม่ได้ ข้อความถูกเลือกไว้แล้ว กด Ctrl+C (หรือ Cmd+C) เพื่อคัดลอกเองค่ะ';
+  modalText.focus();
+  modalText.select();
+});
+$('#modalDownload').addEventListener('click', () => {
+  const blob = new Blob([modalText.value], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeName = (modalTitle.textContent || 'text').replace(/[^\w\u0E00-\u0E7F.-]+/g, '_').slice(0, 80);
+  a.href = url;
+  a.download = safeName + '.txt';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+});
+viewAllTextBtn.addEventListener('click', () => {
+  const kept = spread.filter(p => !p.deleted);
+  if (!kept.length) return;
+  const parts = kept.map((p, i) => {
+    const fn = files[p.fileId]?.name || '';
+    const header = `— หน้า ${i + 1} · ${fn} (หน้าเดิม ${p.pageIndex + 1}) —`;
+    return header + '\n' + ((p.text && p.text.trim()) ? p.text : '(ไม่พบข้อความในหน้านี้)');
+  });
+  openModal(`ข้อความทั้งหมด (${kept.length} หน้า)`, parts.join('\n\n'));
+});
 
 // The dropzone is a native <label for="fileInput">, so a plain click already
 // opens the OS file picker without any JS — more reliable across sandboxed
@@ -504,7 +651,22 @@ async function ingestFile(file) {
       await page.render({ canvasContext: ctx, viewport }).promise;
       const thumb = canvas.toDataURL('image/jpeg', 0.82);
 
-      spread.push({ uid: 'p' + (++pageSeq), fileId: id, pageIndex: i - 1, thumb, deleted: false });
+      let text = '';
+      try {
+        const tc = await page.getTextContent();
+        let lines = [], current = '';
+        for (const item of tc.items) {
+          if (typeof item.str !== 'string') continue;
+          current += item.str + (item.hasEOL ? '' : ' ');
+          if (item.hasEOL) { lines.push(current.trim()); current = ''; }
+        }
+        if (current.trim()) lines.push(current.trim());
+        text = lines.join('\n').replace(/[ \t]+\n/g, '\n').replace(/ {2,}/g, ' ').trim();
+      } catch (e) {
+        console.warn('extract text failed for page', i, e);
+      }
+
+      spread.push({ uid: 'p' + (++pageSeq), fileId: id, pageIndex: i - 1, thumb, text, deleted: false });
       renderGrid();
       renderFooter();
     }
@@ -570,6 +732,7 @@ function renderGrid() {
     card.dataset.uid = p.uid;
 
     const fname = files[p.fileId]?.name || '';
+    const hasText = !!(p.text && p.text.trim());
 
     card.innerHTML = `
       <div class="thumb-frame">
@@ -578,6 +741,7 @@ function renderGrid() {
       </div>
       <div class="idx-badge">${idx + 1}</div>
       <div class="card-controls">
+        <button class="icon-btn text-btn" ${hasText ? '' : 'disabled'} title="${hasText ? 'ดูข้อความหน้านี้' : 'ไม่พบข้อความ (อาจเป็นไฟล์สแกน)'}" aria-label="ดูข้อความหน้านี้">Aa</button>
         <button class="icon-btn stamp-btn" title="${p.deleted ? 'ยกเลิกการตัดหน้านี้' : 'ตัดหน้านี้ออก'}" aria-label="${p.deleted ? 'เรียกคืนหน้านี้' : 'ตัดหน้านี้ออก'}">${p.deleted ? '↺' : '✕'}</button>
       </div>
       <div class="cap"><span class="fn">${escapeHtml(fname)}</span><span>หน้า ${p.pageIndex + 1}</span></div>
@@ -586,6 +750,11 @@ function renderGrid() {
         <button data-dir="1" ${idx === spread.length - 1 ? 'disabled' : ''} aria-label="ย้ายไปถัดไป">ย้าย ▶</button>
       </div>
     `;
+
+    card.querySelector('.text-btn')?.addEventListener('click', () => {
+      if (!hasText) return;
+      openModal(`หน้า ${idx + 1} · ${fname} (หน้าเดิม ${p.pageIndex + 1})`, p.text);
+    });
 
     card.querySelector('.stamp-btn').addEventListener('click', () => {
       p.deleted = !p.deleted;
@@ -636,9 +805,10 @@ function renderGrid() {
 }
 
 function renderFooter() {
-  const kept = spread.filter(p => !p.deleted).length;
-  countPill.innerHTML = `<b>${kept}</b> หน้า พร้อมส่งออก${spread.length !== kept ? ` (ตัดออก ${spread.length - kept})` : ''}`;
-  dlBtn.disabled = kept === 0;
+  const kept = spread.filter(p => !p.deleted);
+  countPill.innerHTML = `<b>${kept.length}</b> หน้า พร้อมส่งออก${spread.length !== kept.length ? ` (ตัดออก ${spread.length - kept.length})` : ''}`;
+  dlBtn.disabled = kept.length === 0;
+  viewAllTextBtn.disabled = kept.length === 0;
 }
 
 dlBtn.addEventListener('click', exportPdf);
