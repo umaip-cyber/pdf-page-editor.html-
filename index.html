@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
 <style>
   :root{
     --paper:#FFF9F5;
@@ -287,6 +288,9 @@
   .dl-btn:hover{background:var(--accent-dark);}
   .dl-btn:active{transform:translateY(1px);}
   .dl-btn:disabled{background:var(--rule); color:var(--ink-soft); cursor:not-allowed;}
+  .word-btn{background:#2B579A;}
+  .word-btn:hover{background:#1F4272;}
+  .word-btn:disabled{background:var(--rule); color:var(--ink-soft);}
   .status{
     font-size:12.5px; color:var(--ink-soft); min-height:16px;
   }
@@ -534,6 +538,10 @@
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1v8.5M4 6.5l3.5 3.5L11 6.5M2 12.5h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       ดาวน์โหลด PDF
     </button>
+    <button class="dl-btn word-btn" id="wordBtn" disabled title="แปลงข้อความในหน้าที่เหลือเป็นไฟล์ Word (เค้าโครงจะไม่เหมือนต้นฉบับ)">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 1.5h11v12H2z" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M4 5h7M4 7.5h7M4 10h4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      แปลงเป็น Word
+    </button>
     <span class="status" id="status"></span>
   </div>
 </div>
@@ -588,6 +596,7 @@ const gridArea = $('#gridArea');
 const dropzone = $('#dropzone');
 const fileInput = $('#fileInput');
 const dlBtn = $('#dlBtn');
+const wordBtn = $('#wordBtn');
 const statusEl = $('#status');
 const countPill = $('#countPill');
 const gridHint = $('#gridHint');
@@ -951,6 +960,7 @@ function renderFooter() {
   const kept = spread.filter(p => !p.deleted);
   countPill.innerHTML = `<b>${kept.length}</b> หน้า พร้อมส่งออก${spread.length !== kept.length ? ` (ตัดออก ${spread.length - kept.length})` : ''}`;
   dlBtn.disabled = kept.length === 0;
+  wordBtn.disabled = kept.length === 0;
   viewAllTextBtn.disabled = kept.length === 0;
 }
 
@@ -1045,6 +1055,55 @@ function setStatus(msg, isErr) {
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+wordBtn.addEventListener('click', exportWord);
+
+async function exportWord() {
+  const kept = spread.filter(p => !p.deleted);
+  if (!kept.length) return;
+  if (typeof docx === 'undefined') {
+    setStatus('โหลดไลบรารีสร้างไฟล์ Word ไม่สำเร็จ (เครือข่ายอาจบล็อก cdn.jsdelivr.net) ลองรีเฟรชหน้าหรือแจ้ง IT', true);
+    return;
+  }
+  wordBtn.disabled = true;
+  setStatus('กำลังสร้างไฟล์ Word...');
+  try {
+    const { Document, Packer, Paragraph, TextRun, PageBreak, HeadingLevel } = docx;
+    const children = [];
+    kept.forEach((p, i) => {
+      const fn = files[p.fileId]?.name || '';
+      children.push(new Paragraph({
+        heading: HeadingLevel.HEADING_3,
+        children: [new TextRun({ text: `หน้า ${i + 1} · ${fn} (หน้าเดิม ${p.pageIndex + 1})` })]
+      }));
+      const text = (p.text && p.text.trim()) ? p.text : '(ไม่พบข้อความในหน้านี้ อาจเป็นไฟล์สแกนที่ไม่มีเลเยอร์ข้อความ)';
+      text.split('\n').forEach(line => {
+        children.push(new Paragraph({ children: [new TextRun(line || ' ')] }));
+      });
+      if (i < kept.length - 1) {
+        children.push(new Paragraph({ children: [new PageBreak()] }));
+      }
+    });
+    const doc = new Document({ sections: [{ children }] });
+    const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    let base = (($('#fname').value || 'merged').trim()).replace(/\.pdf$/i, '');
+    if (!base) base = 'merged';
+    a.href = url;
+    a.download = base + '.docx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    setStatus('ดาวน์โหลดไฟล์ Word แล้ว ✓ (ข้อความล้วน เค้าโครงเดิมจะไม่ถูกเก็บไว้)');
+  } catch (err) {
+    console.error(err);
+    setStatus('เกิดข้อผิดพลาดระหว่างสร้างไฟล์ Word ลองใหม่อีกครั้ง', true);
+  } finally {
+    wordBtn.disabled = kept.length === 0;
+  }
 }
 
 renderGrid();
