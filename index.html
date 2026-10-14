@@ -115,7 +115,8 @@
 
   /* Section label */
   .section-label{
-    display:flex; align-items:baseline; justify-content:space-between;
+    display:flex; align-items:center; justify-content:space-between;
+    flex-wrap:wrap; gap:10px;
     margin-bottom:14px;
   }
   .section-label h2{
@@ -126,7 +127,7 @@
   /* Grid of pages */
   .grid{
     display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(146px, 1fr));
+    grid-template-columns:repeat(auto-fill, minmax(var(--card-min, 190px), 1fr));
     gap:16px;
   }
   .page-card{
@@ -449,6 +450,52 @@
     width:150px;
   }
   .wm-input:focus{outline:2px solid var(--accent); outline-offset:1px;}
+
+  /* Grid zoom control */
+  .zoom-ctl{display:flex; align-items:center; gap:6px;}
+  .zoom-ctl button{
+    width:28px; height:28px; border-radius:8px;
+    border:1px solid var(--rule); background:var(--card); color:var(--ink);
+    font-size:16px; line-height:1; cursor:pointer;
+  }
+  .zoom-ctl button:hover{background:var(--accent-soft); border-color:var(--accent);}
+  .zoom-ctl input[type=range]{width:110px; accent-color:var(--accent); cursor:pointer;}
+  .thumb-frame img{cursor:zoom-in;}
+
+  /* Large page viewer */
+  .viewer{
+    position:fixed; inset:0; z-index:95;
+    background:rgba(20,26,20,.88);
+    display:flex; flex-direction:column;
+  }
+  .viewer.hidden{display:none;}
+  .viewer-bar{
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    padding:10px 16px; background:var(--card); border-bottom:1px solid var(--rule);
+  }
+  .viewer-title{
+    flex:1; min-width:120px; font-size:13px; color:var(--ink);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .viewer-bar button{
+    min-width:32px; height:32px; padding:0 10px; border-radius:8px;
+    border:1px solid var(--rule); background:var(--paper-alt); color:var(--ink);
+    font-size:14px; cursor:pointer;
+  }
+  .viewer-bar button:hover{background:var(--accent-soft); border-color:var(--accent);}
+  .viewer-bar button:disabled{opacity:.35; cursor:not-allowed;}
+  .viewer-pct{
+    font-family:'IBM Plex Mono', monospace; font-size:12.5px;
+    min-width:46px; text-align:center; color:var(--ink-soft);
+  }
+  .viewer-body{
+    flex:1; overflow:auto; padding:16px;
+    display:flex; justify-content:center; align-items:flex-start;
+  }
+  .viewer-body canvas{
+    background:#fff; box-shadow:0 10px 40px rgba(0,0,0,.45); flex:none;
+  }
+  .viewer-msg{color:#fff; font-size:14px; padding-top:40px;}
 </style>
 </head>
 <body class="locked">
@@ -509,6 +556,11 @@
     <h2>ลำดับหน้า</h2>
     <div style="display:flex; align-items:center; gap:10px;">
       <span class="hint" id="gridHint"></span>
+      <div class="zoom-ctl" title="ปรับขนาดภาพตัวอย่างหน้า">
+        <button id="zoomOut" type="button" aria-label="ย่อ">−</button>
+        <input type="range" id="zoomRange" min="120" max="440" step="10" value="190" aria-label="ขนาดภาพตัวอย่าง" />
+        <button id="zoomIn" type="button" aria-label="ขยาย">+</button>
+      </div>
       <button class="viewall-btn" id="viewAllTextBtn" type="button" disabled>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 2h9M2 6h9M2 10h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
         ดูข้อความทั้งหมด
@@ -544,6 +596,20 @@
     </button>
     <span class="status" id="status"></span>
   </div>
+</div>
+
+<div id="viewer" class="viewer hidden" role="dialog" aria-label="ดูหน้าเอกสารขนาดใหญ่">
+  <div class="viewer-bar">
+    <span class="viewer-title" id="viewerTitle"></span>
+    <button id="vPrev" type="button" aria-label="หน้าก่อนหน้า">◀</button>
+    <button id="vNext" type="button" aria-label="หน้าถัดไป">▶</button>
+    <button id="vOut" type="button" aria-label="ย่อ">−</button>
+    <span class="viewer-pct" id="vPct">100%</span>
+    <button id="vIn" type="button" aria-label="ขยาย">+</button>
+    <button id="vFit" type="button">พอดีจอ</button>
+    <button id="vClose" type="button" aria-label="ปิด">✕</button>
+  </div>
+  <div class="viewer-body" id="viewerBody"></div>
 </div>
 
 <div id="textModal" class="modal-overlay hidden">
@@ -785,14 +851,14 @@ async function ingestFile(file) {
     for (let i = 1; i <= pdfDoc.numPages; i++) {
       const page = await pdfDoc.getPage(i);
       const vp1 = page.getViewport({ scale: 1 });
-      const scale = 240 / vp1.width;
+      const scale = 420 / vp1.width;
       const viewport = page.getViewport({ scale });
       const canvas = document.createElement('canvas');
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       const ctx = canvas.getContext('2d');
       await page.render({ canvasContext: ctx, viewport }).promise;
-      const thumb = canvas.toDataURL('image/jpeg', 0.82);
+      const thumb = canvas.toDataURL('image/jpeg', 0.85);
 
       let text = '';
       try {
@@ -864,7 +930,7 @@ function renderGrid() {
       </div>`;
     return;
   }
-  gridHint.textContent = 'ลากบัตรเพื่อสลับตำแหน่ง หรือใช้ปุ่มลูกศร';
+  gridHint.textContent = 'คลิกภาพเพื่อดูขนาดใหญ่ · ลากบัตรเพื่อสลับตำแหน่ง';
   gridArea.innerHTML = '';
   const grid = document.createElement('div');
   grid.className = 'grid';
@@ -897,6 +963,8 @@ function renderGrid() {
         <button data-dir="1" ${idx === spread.length - 1 ? 'disabled' : ''} aria-label="ย้ายไปถัดไป">ย้าย ▶</button>
       </div>
     `;
+
+    card.querySelector('.thumb-frame img').addEventListener('click', () => openViewer(idx));
 
     card.querySelector('.rotate-btn').addEventListener('click', () => {
       p.rotation = ((p.rotation || 0) + 90) % 360;
@@ -1056,6 +1124,110 @@ function setStatus(msg, isErr) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+// ---------- Grid zoom ----------
+const zoomRange = $('#zoomRange');
+function setCardSize(v) {
+  v = Math.max(120, Math.min(440, v));
+  zoomRange.value = v;
+  document.documentElement.style.setProperty('--card-min', v + 'px');
+}
+zoomRange.addEventListener('input', () => setCardSize(parseInt(zoomRange.value, 10)));
+$('#zoomOut').addEventListener('click', () => setCardSize(parseInt(zoomRange.value, 10) - 40));
+$('#zoomIn').addEventListener('click', () => setCardSize(parseInt(zoomRange.value, 10) + 40));
+setCardSize(190);
+
+// ---------- Large page viewer ----------
+const viewerEl = $('#viewer');
+const viewerBody = $('#viewerBody');
+const viewerTitle = $('#viewerTitle');
+const vPct = $('#vPct');
+const vPrev = $('#vPrev');
+const vNext = $('#vNext');
+let viewerIdx = -1, viewerZoom = 1, viewerToken = 0;
+const viewerDocs = {};
+
+async function getViewerDoc(fileId) {
+  if (!viewerDocs[fileId]) {
+    viewerDocs[fileId] = pdfjsLib.getDocument({ data: files[fileId].bytes.slice() }).promise;
+  }
+  return viewerDocs[fileId];
+}
+
+function openViewer(idx) {
+  if (idx < 0 || idx >= spread.length) return;
+  viewerIdx = idx;
+  viewerZoom = 1;
+  viewerEl.classList.remove('hidden');
+  renderViewer();
+}
+function closeViewer() {
+  viewerEl.classList.add('hidden');
+  viewerBody.innerHTML = '';
+  viewerToken++;
+}
+
+async function renderViewer() {
+  const token = ++viewerToken;
+  const p = spread[viewerIdx];
+  if (!p || !files[p.fileId]) { closeViewer(); return; }
+  const fn = files[p.fileId].name;
+  viewerTitle.textContent = `หน้า ${viewerIdx + 1}/${spread.length} · ${fn} (หน้าเดิม ${p.pageIndex + 1})${p.deleted ? ' · ตัดออก' : ''}`;
+  vPct.textContent = Math.round(viewerZoom * 100) + '%';
+  vPrev.disabled = viewerIdx === 0;
+  vNext.disabled = viewerIdx === spread.length - 1;
+  viewerBody.innerHTML = '<div class="viewer-msg">กำลังโหลดหน้า...</div>';
+  try {
+    const doc = await getViewerDoc(p.fileId);
+    const page = await doc.getPage(p.pageIndex + 1);
+    const rotation = ((page.rotate || 0) + (p.rotation || 0)) % 360;
+    const vp1 = page.getViewport({ scale: 1, rotation });
+    const avail = Math.max(200, viewerBody.clientWidth - 32);
+    const cssScale = (avail / vp1.width) * viewerZoom;
+    const dpr = window.devicePixelRatio || 1;
+    let renderScale = cssScale * dpr;
+    const biggest = Math.max(vp1.width, vp1.height) * renderScale;
+    if (biggest > 4096) renderScale *= 4096 / biggest;
+    const vp = page.getViewport({ scale: renderScale, rotation });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(vp.width);
+    canvas.height = Math.floor(vp.height);
+    canvas.style.width = (vp1.width * cssScale) + 'px';
+    canvas.style.height = (vp1.height * cssScale) + 'px';
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    if (token !== viewerToken) return;
+    viewerBody.innerHTML = '';
+    viewerBody.appendChild(canvas);
+  } catch (err) {
+    console.error(err);
+    if (token === viewerToken) viewerBody.innerHTML = '<div class="viewer-msg">แสดงหน้านี้ไม่สำเร็จ</div>';
+  }
+}
+
+function viewerStep(d) {
+  const n = viewerIdx + d;
+  if (n < 0 || n >= spread.length) return;
+  viewerIdx = n;
+  renderViewer();
+}
+function viewerSetZoom(z) {
+  viewerZoom = Math.max(0.5, Math.min(4, z));
+  renderViewer();
+}
+vPrev.addEventListener('click', () => viewerStep(-1));
+vNext.addEventListener('click', () => viewerStep(1));
+$('#vIn').addEventListener('click', () => viewerSetZoom(viewerZoom + 0.25));
+$('#vOut').addEventListener('click', () => viewerSetZoom(viewerZoom - 0.25));
+$('#vFit').addEventListener('click', () => viewerSetZoom(1));
+$('#vClose').addEventListener('click', closeViewer);
+document.addEventListener('keydown', (e) => {
+  if (viewerEl.classList.contains('hidden')) return;
+  if (e.key === 'Escape') closeViewer();
+  else if (e.key === 'ArrowLeft') viewerStep(-1);
+  else if (e.key === 'ArrowRight') viewerStep(1);
+  else if (e.key === '+' || e.key === '=') viewerSetZoom(viewerZoom + 0.25);
+  else if (e.key === '-') viewerSetZoom(viewerZoom - 0.25);
+});
 
 wordBtn.addEventListener('click', exportWord);
 
